@@ -502,6 +502,11 @@ class TeslaPowerwallAccfactory {
           }; */
         }
       }
+
+      // Finally, after device data for anything we havent tracked yet, if device is not excluded, send updated data to device for it to process
+      if (deviceData.excluded === false && this.#trackedDevices?.[deviceData?.serialNumber] !== undefined) {
+        this.#eventEmitter.emit(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
+      }
     });
   }
 
