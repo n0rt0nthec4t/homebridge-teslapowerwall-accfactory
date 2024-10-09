@@ -1,0 +1,55 @@
+{
+    "pluginAlias": "TeslaPowerwallAccfactory",
+    "pluginType": "platform",
+    "singular": true,
+    "schema": {
+        "type" : "object",
+        "properties" : {
+            "gateways" : {
+                "type" : "array",
+                "expandable": true,
+                "expanded": true,
+                "items": {
+                    "type" : "object",
+                    "properties" : {
+                        "gateway": {
+                            "type": "string",
+                            "required": true,
+                            "default": "",
+                            "placeholder": "IP address or hostname for Tesla Backup Gateway"
+                        },
+                        "username": {
+                            "type": "string",
+                            "default": "customer",
+                            "required": true
+                        },
+                        "password": {
+                            "type": "string",
+                            "required": true,
+                            "default": "",
+                            "placeholder": "Password for Tesla Backup Gateway"
+                        },
+                        "email": {
+                            "type": "string",
+                            "required": true,
+                            "default": "",
+                            "placeholder": "Registered user email address"
+                        }
+                    }
+                }
+            },
+            "options": {
+                "title": "Options",
+                "type": "object",
+                "properties": {
+                    "eveHistory": {
+                        "title": "EveHome History",
+                        "description": "Provide history in EveHome application where applicable",
+                        "type": "boolean",
+                        "default": true
+                    }
+                }
+            }
+        }
+    }
+}

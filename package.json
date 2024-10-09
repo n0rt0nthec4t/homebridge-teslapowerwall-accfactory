@@ -2,7 +2,7 @@
     "name": "homebridge-teslapowerwall-accfactory",
     "displayName": "Tesla Powerwall Accfactory",
     "type": "module",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "description": "Homebridge support for Tesla Powerwall(s)",
     "author": "n0rt0nthec4t",
     "license": "Apache-2.0",

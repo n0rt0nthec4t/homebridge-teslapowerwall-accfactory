@@ -11,7 +11,7 @@
 //  Battery Charging No = Battery is not being charge
 //  Low battery indicator = ????
 //
-// Code version 8/10/2024
+// Code version 10/10/2024
 // Mark Hulskamp
 'use strict';
 
@@ -286,28 +286,29 @@ class TeslaPowerwallAccfactory {
     // Perform validation on the configuration passed into us and set defaults if not present
 
     // Build our connection object. Allows us to have multiple diffent account connections under the one accessory
-    Object.keys(this.config).forEach((key) => {
-      if (
-        this.config[key]?.gateway !== undefined &&
-        this.config[key]?.gateway !== '' &&
-        this.config[key]?.email !== undefined &&
-        this.config[key]?.email !== '' &&
-        this.config[key]?.password !== undefined &&
-        this.config[key]?.password !== ''
-      ) {
-        // Valid connection object
-        this.#connections[crypto.randomUUID()] = {
-          name: key,
-          authorised: false,
-          retry: true,
-          timer: undefined,
-          gateway: this.config[key].gateway,
-          username: this.config[key]?.username === undefined && this.config[key].username !== '' ? 'customer' : this.config[key].username,
-          email: this.config[key].email,
-          password: this.config[key].password,
-        };
-      }
-    });
+    if (config?.gateways !== undefined && Array.isArray(config.gateways) === true) {
+      config.gateways.forEach((value) => {
+        if (
+          value?.gateway !== undefined &&
+          value?.gateway !== '' &&
+          value?.email !== undefined &&
+          value?.email !== '' &&
+          value?.password !== undefined &&
+          value?.password !== ''
+        ) {
+          // Valid connection object
+          this.#connections[crypto.randomUUID()] = {
+            authorised: false,
+            retry: true,
+            timer: undefined,
+            gateway: value.gateway,
+            username: value?.username !== undefined && value.username !== '' ? value.username : 'customer',
+            email: value.email,
+            password: value.password,
+          };
+        }
+      });
+    }
 
     this.config.options.eveHistory = typeof this.config.options?.eveHistory === 'boolean' ? this.config.options.eveHistory : false;
 

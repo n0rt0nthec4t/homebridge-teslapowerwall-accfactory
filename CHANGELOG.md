@@ -2,6 +2,10 @@
 
 All notable changes to `homebridge-teslapowerwall-accfactory` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## v0.0.2 (2024/10/10)
+
+- Added plugin configuration via Homebridge-config-ui GUI
+
 ## v0.0.2 (2024/10/08)
 
 - Fix for devices not updating
