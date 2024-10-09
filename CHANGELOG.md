@@ -2,6 +2,10 @@
 
 All notable changes to `homebridge-teslapowerwall-accfactory` will be documented in this file. This project tries to adhere to [Semantic Versioning](http://semver.org/).
 
+## Known issues
+
+Entered passwords for gateway(s) are stored in plain text in configuration JSON.
+
 ## v0.0.4 (2024/10/10)
 
 - Added plugin configuration via Homebridge-config-ui GUI
