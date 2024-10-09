@@ -15,24 +15,21 @@
                         "gateway": {
                             "type": "string",
                             "required": true,
-                            "default": "",
                             "placeholder": "IP address or hostname for Tesla Backup Gateway"
                         },
                         "username": {
                             "type": "string",
-                            "default": "customer",
-                            "required": true
+                            "required": true,
+                            "default": "customer"
                         },
                         "password": {
                             "type": "string",
                             "required": true,
-                            "default": "",
                             "placeholder": "Password for Tesla Backup Gateway"
                         },
                         "email": {
                             "type": "string",
                             "required": true,
-                            "default": "",
                             "placeholder": "Registered user email address"
                         }
                     }
