@@ -4,7 +4,8 @@ All notable changes to `homebridge-teslapowerwall-accfactory` will be documented
 
 ## Known issues
 
-Entered passwords for gateway(s) are stored in plain text in configuration JSON.
+- Entered passwords for gateway(s) are stored in plain text in configuration JSON.
+- Sets NODE_TLS_REJECT_UNAUTHORIZED to 0 in the process that starts the code. This is to handle self-signed certifcates that the Tesla uses. Need another work around using the native 'fetch' library
 
 ## v0.0.4 (2024/10/10)
 
