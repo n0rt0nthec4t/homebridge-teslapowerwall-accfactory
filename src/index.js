@@ -19,7 +19,7 @@
 import EventEmitter from 'node:events';
 import { setInterval, clearInterval, setTimeout, clearTimeout } from 'node:timers';
 import crypto from 'node:crypto';
-import process from 'node:process';
+import { Agent, setGlobalDispatcher } from 'undici';
 
 // Import our modules
 import HomeKitDevice from './HomeKitDevice.js';
@@ -668,9 +668,13 @@ async function fetchWrapper(method, url, options, data, response) {
 
 // Startup code
 export default (api) => {
-  // DODGY WORKAROUND
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
-  // DODGY WORKAROUND
+  setGlobalDispatcher(
+    new Agent({
+      connect: {
+        rejectUnauthorized: false,
+      },
+    }),
+  );
 
   // Register our platform with HomeBridge
   api.registerPlatform(HomeKitDevice.PLATFORM_NAME, TeslaPowerwallAccfactory);
