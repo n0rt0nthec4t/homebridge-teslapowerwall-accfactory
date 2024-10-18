@@ -14,6 +14,7 @@
     "bugs": {
         "url": "https://github.com/n0rt0nthec4t/homebridge-teslapowerwall-accfactory/issues"
     },
+    "funding": "https://github.com/n0rt0nthec4t/homebridge-teslapowerwall-accfactory?sponsor=1",
     "keywords": [
         "homekit",
         "homebridge-plugin",

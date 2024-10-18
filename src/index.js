@@ -273,7 +273,7 @@ class TeslaPowerwallAccfactory {
 
   // Internal data only for this class
   #connections = {}; // Object of confirmed connections
-  #rawData = {}; // Cached copy of data from both Rest and Protobuf APIs
+  #rawData = {}; // Cached copy of data from Rest API
   #eventEmitter = new EventEmitter(); // Used for object messaging from this platform
   #connectionTimer = undefined;
   #trackedDevices = {}; // Object of devices we've created. used to track comms uuid. key'd by serial #
@@ -310,7 +310,7 @@ class TeslaPowerwallAccfactory {
       });
     }
 
-    this.config.options.eveHistory = typeof this.config.options?.eveHistory === 'boolean' ? this.config.options.eveHistory : false;
+    this.config.options.eveHistory = typeof this.config.options?.eveHistory === 'boolean' ? this.config.options.eveHistory : true;
 
     if (this.api instanceof EventEmitter === true) {
       this.api.on('didFinishLaunching', async () => {
@@ -504,7 +504,7 @@ class TeslaPowerwallAccfactory {
         }
       }
 
-      // Finally, after device data for anything we havent tracked yet, if device is not excluded, send updated data to device for it to process
+      // Finally, if device is not excluded, send updated data to device for it to process
       if (deviceData.excluded === false && this.#trackedDevices?.[deviceData?.serialNumber] !== undefined) {
         this.#eventEmitter.emit(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
       }
@@ -560,7 +560,7 @@ class TeslaPowerwallAccfactory {
       Object.values(data.status.battery_blocks).forEach((powerwall) => {
         var tempDevice = {};
         tempDevice.excluded = false;
-        tempDevice.serialNumber = powerwall.PackageSerialNumber.toUpperCase(); // ensure serial numbers are in upper cas
+        tempDevice.serialNumber = powerwall.PackageSerialNumber.toUpperCase(); // ensure serial numbers are in upper case
         tempDevice.device_type = TeslaPowerwallAccfactory.DeviceType.POWERWALL;
         tempDevice.softwareVersion = gatewaySoftwareVersion;
         //tempDevice.softwareVersion = powerwall.version.replace(/-/g, '.');
