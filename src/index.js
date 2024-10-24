@@ -312,24 +312,21 @@ class TeslaPowerwallAccfactory {
 
     this.config.options.eveHistory = typeof this.config.options?.eveHistory === 'boolean' ? this.config.options.eveHistory : true;
 
-    if (this.api instanceof EventEmitter === true) {
-      this.api.on('didFinishLaunching', async () => {
-        // We got notified that Homebridge has finished loading, so we are ready to process
-        this.discoverDevices();
+    this.api.on('didFinishLaunching', async () => {
+      // We got notified that Homebridge has finished loading, so we are ready to process
+      this.discoverDevices();
 
-        // We'll check connection status every 15 seconds. We'll also handle token expiry/refresh this way
-        clearInterval(this.#connectionTimer);
-        this.#connectionTimer = setInterval(this.discoverDevices.bind(this), 15000);
-      });
+      // We'll check connection status every 15 seconds. We'll also handle token expiry/refresh this way
+      clearInterval(this.#connectionTimer);
+      this.#connectionTimer = setInterval(this.discoverDevices.bind(this), 15000);
+    });
 
-      this.api.on('shutdown', async () => {
-        // We got notified that Homebridge is shutting down
-        // Perform cleanup some internal cleaning up
-        this.#eventEmitter.removeAllListeners();
-        this.#rawData = {};
-        this.#eventEmitter = undefined;
-      });
-    }
+    this.api.on('shutdown', async () => {
+      // We got notified that Homebridge is shutting down
+      // Perform cleanup some internal cleaning up
+      this.#eventEmitter.removeAllListeners();
+      clearInterval(this.#connectionTimer);
+    });
   }
 
   configureAccessory(accessory) {
