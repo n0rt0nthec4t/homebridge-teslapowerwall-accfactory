@@ -6,9 +6,13 @@ All notable changes to `homebridge-teslapowerwall-accfactory` will be documented
 
 - Entered passwords for gateway(s) are stored in plain text in configuration JSON.
 
+## v0.0.7 (2024/12/08) 
+
+- Minor fixes and dependency updates
+
 ## v0.0.5 (2024/10/12) 
 
-- Safer way to handle that the Tesla uses. No longer set NODE_TLS_REJECT_UNAUTHORIZED to 0 in the process that starts the code
+- Safer way to handle the way Tesla uses unsigned certificates. No longer set NODE_TLS_REJECT_UNAUTHORIZED to 0 in the process that starts the code
 
 ## v0.0.4 (2024/10/10)
 

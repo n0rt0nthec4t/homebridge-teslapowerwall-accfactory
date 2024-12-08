@@ -2,7 +2,7 @@
     "name": "homebridge-teslapowerwall-accfactory",
     "displayName": "Tesla Powerwall Accfactory",
     "type": "module",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "description": "Homebridge support for Tesla Powerwall(s)",
     "author": "n0rt0nthec4t",
     "license": "Apache-2.0",
@@ -43,18 +43,18 @@
         "prepublishOnly": "npm run lint && npm run build"
     },
     "devDependencies": {
-        "@eslint/js": "^9.13.0",
-        "@stylistic/eslint-plugin": "^2.9.0",
-        "@types/node": "^22.7.9",
-        "@typescript-eslint/parser": "^8.11.0",
+        "@eslint/js": "^9.16.0",
+        "@stylistic/eslint-plugin": "^2.11.0",
+        "@types/node": "^22.10.1",
+        "@typescript-eslint/parser": "^8.17.0",
         "homebridge": "^2.0.0-beta.0",
         "copyfiles": "^2.4.1",
-        "eslint": "^9.13.0",
-        "prettier": "^3.3.3",
+        "eslint": "^9.16.0",
+        "prettier": "^3.4.2",
         "prettier-eslint": "^16.3.0",
         "rimraf": "^6.0.1"
     },
     "dependencies": {
-        "undici": "^6.20.1"
+        "undici": "^7.1.0"
     }
 }

@@ -446,7 +446,7 @@ class TeslaPowerwallAccfactory {
           .catch((error) => {
             if (error?.cause !== undefined && JSON.stringify(error.cause).toUpperCase().includes('TIMEOUT') === false && this?.log?.debug) {
               this.log.debug('REST API had an error obtaining data from url "%s" for uuid "%s"', url, connectionUUID);
-              this.log.debug('Error was "%s"', error);
+              //this.log.debug('Error was "%s"', error);
             }
           });
       }),
