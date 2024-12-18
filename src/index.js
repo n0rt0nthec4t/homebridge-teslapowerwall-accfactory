@@ -11,7 +11,7 @@
 //  Battery Charging No = Battery is not being charge
 //  Low battery indicator = ????
 //
-// Code version 10/10/2024
+// Code version 2024/12/19
 // Mark Hulskamp
 'use strict';
 
@@ -541,12 +541,13 @@ class TeslaPowerwallAccfactory {
       tempDevice.nominal_energy_remaining = data.status.nominal_energy_remaining; // Should be battery remaing across all powerwalls
       tempDevice.nominal_full_pack_energy = data.status.nominal_full_pack_energy; // Should be battery capacity across all powerwalls
       tempDevice.online = false; // Offline by default
-      data.networks.forEach((network) => {
-        if (network.enabled === true && network.active === true) {
-          // Found a network interface that is marked as enabled and active, this means online status is true
-          tempDevice.online = true;
-        }
-      });
+      data.networks &&
+        data.networks.forEach((network) => {
+          if (network.enabled === true && network.active === true) {
+            // Found a network interface that is marked as enabled and active, this means online status is true
+            tempDevice.online = true;
+          }
+        });
       tempDevice.eveHistory =
         this.config.options.eveHistory === true || this.config?.devices?.[tempDevice.serialNumber]?.eveHistory === true;
 
