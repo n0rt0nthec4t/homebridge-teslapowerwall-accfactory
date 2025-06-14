@@ -11,13 +11,13 @@
 //  Battery Charging No = Battery is not being charge
 //  Low battery indicator = ????
 //
-// Code version 2024/12/19
+// Code version 2025/06/14
 // Mark Hulskamp
 'use strict';
 
 // Define nodejs module requirements
 import EventEmitter from 'node:events';
-import { setInterval, clearInterval, setTimeout, clearTimeout } from 'node:timers';
+import { clearInterval, setTimeout, clearTimeout } from 'node:timers';
 import crypto from 'node:crypto';
 import { Agent, setGlobalDispatcher } from 'undici';
 
@@ -33,6 +33,9 @@ HomeKitDevice.HISTORY = HomeKitHistory;
 const MINWATTS = 100;
 
 class Powerwall extends HomeKitDevice {
+  static TYPE = 'TeslaPowerwall';
+  static VERSION = '2025.06.14';
+
   batteryService = undefined;
   outletService = undefined;
 
@@ -41,22 +44,13 @@ class Powerwall extends HomeKitDevice {
   }
 
   // Class functions
-  addServices() {
+  setupDevice() {
     // Setup the outlet service if not already present on the accessory
-    this.outletService = this.accessory.getService(this.hap.Service.Outlet);
-    if (this.outletService === undefined) {
-      this.outletService = this.accessory.addService(this.hap.Service.Outlet, '', 1);
-    }
-    if (this.outletService.testCharacteristic(this.hap.Characteristic.StatusFault) === false) {
-      this.outletService.addCharacteristic(this.hap.Characteristic.StatusFault);
-    }
+    this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1);
     this.outletService.setPrimaryService();
 
-    // Setup the battery service if not already present on the accessory
-    this.batteryService = this.accessory.getService(this.hap.Service.Battery);
-    if (this.batteryService === undefined) {
-      this.batteryService = this.accessory.addService(this.hap.Service.Battery, '', 1);
-    }
+    // Setup battery service if not already present on the accessory
+    this.batteryService = this.addHKService(this.hap.Service.Battery, '', 1);
     this.batteryService.setHiddenService(true);
 
     // Setup linkage to EveHome app if configured todo so
@@ -72,7 +66,7 @@ class Powerwall extends HomeKitDevice {
     }
   }
 
-  updateServices(deviceData) {
+  updateDevice(deviceData) {
     if (typeof deviceData !== 'object' || this.outletService === undefined || this.batteryService === undefined) {
       return;
     }
@@ -145,6 +139,9 @@ class Powerwall extends HomeKitDevice {
 
 // eslint-disable-next-line no-unused-vars
 class Gateway extends HomeKitDevice {
+  static TYPE = 'TeslaGateway';
+  static VERSION = '2025.06.14';
+
   batteryService = undefined;
   outletService = undefined;
 
@@ -153,7 +150,7 @@ class Gateway extends HomeKitDevice {
   }
 
   // Class functions
-  addServices() {
+  setupDevice() {
     // Setup the outlet service if not already present on the accessory
     this.outletService = this.accessory.getService(this.hap.Service.Outlet);
     if (this.outletService === undefined) {
@@ -192,7 +189,7 @@ class Gateway extends HomeKitDevice {
     }
   }
 
-  updateServices(deviceData) {
+  updateDevice(deviceData) {
     if (typeof deviceData !== 'object' || this.outletService === undefined || this.batteryService === undefined) {
       return;
     }
@@ -275,7 +272,6 @@ class TeslaPowerwallAccfactory {
   #connections = {}; // Object of confirmed connections
   #rawData = {}; // Cached copy of data from Rest API
   #eventEmitter = new EventEmitter(); // Used for object messaging from this platform
-  #connectionTimer = undefined;
   #trackedDevices = {}; // Object of devices we've created. used to track comms uuid. key'd by serial #
 
   constructor(log, config, api) {
@@ -286,7 +282,7 @@ class TeslaPowerwallAccfactory {
     // Perform validation on the configuration passed into us and set defaults if not present
 
     // Build our connection object. Allows us to have multiple diffent account connections under the one accessory
-    if (config?.gateways !== undefined && Array.isArray(config.gateways) === true) {
+    if (Array.isArray(config?.gateways) === true) {
       config.gateways.forEach((value) => {
         if (
           value?.gateway !== undefined &&
@@ -312,20 +308,46 @@ class TeslaPowerwallAccfactory {
 
     this.config.options.eveHistory = typeof this.config.options?.eveHistory === 'boolean' ? this.config.options.eveHistory : true;
 
-    this.api.on('didFinishLaunching', async () => {
+    this?.api?.on?.('didFinishLaunching', async () => {
       // We got notified that Homebridge has finished loading, so we are ready to process
-      this.discoverDevices();
+      // Start reconnect loop per connection with backoff for failed tries
+      for (const uuid of Object.keys(this.#connections)) {
+        let reconnectDelay = 15000;
 
-      // We'll check connection status every 15 seconds. We'll also handle token expiry/refresh this way
-      clearInterval(this.#connectionTimer);
-      this.#connectionTimer = setInterval(this.discoverDevices.bind(this), 15000);
+        const reconnectLoop = async () => {
+          if (this.#connections?.[uuid]?.authorised === false && this.#connections?.[uuid]?.retry !== false) {
+            try {
+              await this.#connect(uuid);
+              this.#subscribeREST(uuid);
+              // eslint-disable-next-line no-unused-vars
+            } catch (error) {
+              // Empty
+            }
+
+            reconnectDelay = this.#connections?.[uuid]?.authorised === true ? 15000 : Math.min(reconnectDelay * 2, 60000);
+          } else {
+            reconnectDelay = 15000;
+          }
+
+          setTimeout(reconnectLoop, reconnectDelay);
+        };
+
+        reconnectLoop();
+      }
     });
 
-    this.api.on('shutdown', async () => {
+    this?.api?.on?.('shutdown', async () => {
       // We got notified that Homebridge is shutting down
-      // Perform cleanup some internal cleaning up
-      this.#eventEmitter.removeAllListeners();
-      clearInterval(this.#connectionTimer);
+      // Perform cleanup of internal state
+      this.#eventEmitter?.removeAllListeners();
+
+      Object.values(this.#trackedDevices).forEach((device) => {
+        Object.values(device?.timers || {}).forEach((timer) => clearInterval(timer));
+      });
+
+      this.#trackedDevices = {};
+      this.#rawData = {};
+      this.#eventEmitter = undefined;
     });
   }
 
@@ -337,90 +359,76 @@ class TeslaPowerwallAccfactory {
     this.cachedAccessories.push(accessory);
   }
 
-  async discoverDevices() {
-    Object.keys(this.#connections).forEach((uuid) => {
-      if (this.#connections[uuid]?.authorised === false && this.#connections[uuid]?.retry === true) {
-        this.#connect(uuid).then(() => {
-          if (this.#connections[uuid].authorised === true) {
-            this.#subscribeREST(uuid);
-          }
-        });
-      }
-    });
-  }
+  async #connect(uuid) {
+    if (typeof this.#connections?.[uuid] === 'object') {
+      this?.log?.info?.('Performing authorisation to Tesla Gateway at "%s"', this.#connections[uuid].gateway);
 
-  async #connect(connectionUUID) {
-    if (typeof this.#connections?.[connectionUUID] === 'object') {
-      this?.log?.info && this.log.info('Performing authorisation to Tesla Gateway at "%s"', this.#connections[connectionUUID].gateway);
+      try {
+        let response = await fetchWrapper(
+          'post',
+          'https://' + this.#connections[uuid].gateway + '/api/login/Basic',
+          {},
+          JSON.stringify({
+            username: this.#connections[uuid].username,
+            password: this.#connections[uuid].password,
+            email: this.#connections[uuid].email,
+          }),
+        );
 
-      await fetchWrapper(
-        'post',
-        'https://' + this.#connections[connectionUUID].gateway + '/api/login/Basic',
-        {},
-        JSON.stringify({
-          username: this.#connections[connectionUUID].username,
-          password: this.#connections[connectionUUID].password,
-          email: this.#connections[connectionUUID].email,
-        }),
-      )
-        .then((response) => response.json())
-        .then((data) => {
-          this.#connections[connectionUUID].authorised = true;
-          this.#connections[connectionUUID].token = data.token;
+        let data = await response.json();
+        this.#connections[uuid].authorised = true;
+        this.#connections[uuid].token = data.token;
 
-          // Set timeout for token expiry refresh
-          clearTimeout(this.#connections[connectionUUID].timer);
-          this.#connections[connectionUUID].timer = setTimeout(
-            () => {
-              this?.log?.info &&
-                this.log.info('Performing periodic re-authorisation to Tesla Gateway "%s"', this.#connections[connectionUUID].gateway);
-              this.#connect(connectionUUID);
-            },
-            1000 * 3600 * 24,
-          ); // Refresh token every 24hrs
+        clearTimeout(this.#connections[uuid].timer);
+        this.#connections[uuid].timer = setTimeout(
+          () => {
+            this?.log?.info?.('Performing periodic re-authorisation to Tesla Gateway "%s"', this.#connections[uuid].gateway);
+            this.#connect(uuid);
+          },
+          1000 * 3600 * 24,
+        ); // Refresh token every 24hrs
 
-          this?.log?.success &&
-            this.log.success('Successfully authorised to Telsa Gateway "%s"', this.#connections[connectionUUID].gateway);
-        })
-        .catch((error) => {
-          this.#connections[connectionUUID].authorised = false;
-          if (error?.cause?.code === 'ENOTFOUND') {
-            this?.log?.error &&
-              this.log.error(
-                'Specified Tesla gateway "%s" could not be found. Please check your configuration',
-                this.#connections[connectionUUID].gateway,
-              );
-            this.#connections[connectionUUID].retry = false;
-            return;
-          }
-          if (error?.cause?.code !== undefined && error.cause.code.includes('TIMEOUT') === true) {
-            this?.log?.error &&
-              this.log.error(
-                'Failed to connect to Tesla Gateway "%s". A periodic retry event will be triggered',
-                this.#connections[connectionUUID].gateway,
-              );
-            this.#connections[connectionUUID].retry = true;
-            return;
-          }
+        this?.log?.success?.('Successfully authorised to Tesla Gateway "%s"', this.#connections[uuid].gateway);
+      } catch (error) {
+        this.#connections[uuid].authorised = false;
 
-          this?.log?.error &&
-            this.log.error(
-              'Authorisation failed to Tesla Gateway "%s". A periodic retry event will be triggered',
-              this.#connections[connectionUUID].gateway,
-            );
-          this.#connections[connectionUUID].retry = true;
+        let errorCode = error?.cause?.code;
+
+        if (errorCode === 'ENOTFOUND') {
+          this?.log?.error?.(
+            'Specified Tesla Gateway "%s" could not be found. Please check your configuration',
+            this.#connections[uuid].gateway,
+          );
+          this.#connections[uuid].retry = false;
           return;
-        });
+        }
+
+        if (typeof errorCode === 'string' && errorCode.includes('TIMEOUT') === true) {
+          this?.log?.error?.(
+            'Failed to connect to Tesla Gateway "%s". A periodic retry event will be triggered',
+            this.#connections[uuid].gateway,
+          );
+          this.#connections[uuid].retry = true;
+          return;
+        }
+
+        this?.log?.error?.(
+          'Authorisation failed to Tesla Gateway "%s": %s',
+          this.#connections[uuid].gateway,
+          String(error?.cause || error),
+        );
+        this.#connections[uuid].retry = true;
+      }
     }
   }
 
-  async #subscribeREST(connectionUUID) {
-    if (typeof this.#connections?.[connectionUUID] !== 'object' || this.#connections?.[connectionUUID]?.authorised !== true) {
+  async #subscribeREST(uuid) {
+    if (typeof this.#connections?.[uuid] !== 'object' || this.#connections?.[uuid]?.authorised !== true) {
       // Not a valid connection object and/or we're not authorised
       return;
     }
 
-    const FETCHURLS = [
+    let fetchUrls = [
       '/api/networks',
       '/api/status',
       '/api/powerwalls',
@@ -430,31 +438,41 @@ class TeslaPowerwallAccfactory {
       '/api/solars',
     ];
 
-    let tempObject = [];
+    let tempObject = {};
+
     await Promise.all(
-      FETCHURLS.map(async (url) => {
-        await fetchWrapper('get', 'https://' + this.#connections[connectionUUID].gateway + url, {
-          headers: {
-            'content-type': 'application/json',
-            cookie: 'AuthCookie=' + this.#connections[connectionUUID].token,
-          },
-        })
-          .then((response) => response.json())
-          .then((data) => {
-            tempObject[url] = data;
-          })
-          .catch((error) => {
-            if (error?.cause !== undefined && JSON.stringify(error.cause).toUpperCase().includes('TIMEOUT') === false && this?.log?.debug) {
-              this.log.debug('REST API had an error obtaining data from url "%s" for uuid "%s"', url, connectionUUID);
-              //this.log.debug('Error was "%s"', error);
-            }
+      fetchUrls.map(async (url) => {
+        try {
+          let response = await fetchWrapper('get', 'https://' + this.#connections[uuid].gateway + url, {
+            headers: {
+              'content-type': 'application/json',
+              cookie: 'AuthCookie=' + this.#connections[uuid].token,
+            },
           });
+
+          let text = await response.text();
+          try {
+            tempObject[url] = text.trim() === '' ? {} : JSON.parse(text);
+          } catch {
+            // silently skip if invalid JSON
+          }
+        } catch (error) {
+          if (
+            String(error?.cause || error)
+              .toUpperCase()
+              .includes('TIMEOUT') === false &&
+            this?.log?.debug
+          ) {
+            this.log.debug('REST API had an error obtaining data from url "%s" for uuid "%s"', url, uuid);
+            this.log.debug('Error was "%s"', String(error?.cause || error));
+          }
+        }
       }),
     );
 
-    if (Object.keys(tempObject).length === FETCHURLS.length) {
+    if (Object.keys(tempObject).length === fetchUrls.length) {
       // We got all the data required, so now can process what we retrieved
-      this.#rawData[connectionUUID] = {
+      this.#rawData[uuid] = {
         powerwalls: tempObject['/api/powerwalls'],
         gateway: tempObject['/api/status'],
         powerflow: tempObject['/api/meters/aggregates'],
@@ -467,18 +485,33 @@ class TeslaPowerwallAccfactory {
       await this.#processPostSubscribe();
     }
 
-    // redo data gathering again after specified timeout
-    setTimeout(this.#subscribeREST.bind(this, connectionUUID), SUBSCRIBEINTERVAL);
+    // Redo data gathering again after specified timeout
+    setTimeout(this.#subscribeREST.bind(this, uuid), SUBSCRIBEINTERVAL);
   }
 
   #processPostSubscribe() {
     Object.values(this.#processData('')).forEach((deviceData) => {
       if (this.#trackedDevices?.[deviceData?.serialNumber] === undefined && deviceData?.excluded === true) {
         // We haven't tracked this device before (ie: should be a new one) and but its excluded
-        this?.log?.warn && this.log.warn('Device "%s" is ignored due to it being marked as excluded', deviceData.description);
+        this?.log?.warn?.('Device "%s" is ignored due to it being marked as excluded', deviceData.description);
+
+        // Track this device even though its excluded
+        this.#trackedDevices[deviceData.serialNumber] = {
+          uuid: HomeKitDevice.generateUUID(HomeKitDevice.PLUGIN_NAME, this.api, deviceData.serialNumber),
+          timers: undefined,
+          exclude: true,
+        };
+
+        // If the device is now marked as excluded and present in accessory cache
+        // Then we'll unregister it from the Homebridge platform
+        let accessory = this.cachedAccessories.find((accessory) => accessory?.UUID === this.#trackedDevices[deviceData.serialNumber].uuid);
+        if (accessory !== undefined && typeof accessory === 'object') {
+          this.api.unregisterPlatformAccessories(HomeKitDevice.PLUGIN_NAME, HomeKitDevice.PLATFORM_NAME, [accessory]);
+        }
       }
+
       if (this.#trackedDevices?.[deviceData?.serialNumber] === undefined && deviceData?.excluded === false) {
-        if (deviceData.device_type === TeslaPowerwallAccfactory.DeviceType.POWERWALL) {
+        if (deviceData.device_type = TeslaPowerwallAccfactory.DeviceType.POWERWALL) {
           // Tesla Powerwall - Categories.OUTLET = 7
           let tempDevice = new Powerwall(this.cachedAccessories, this.api, this.log, this.#eventEmitter, deviceData);
           tempDevice.add('Tesla Powerwall', 7, true);
@@ -486,24 +519,16 @@ class TeslaPowerwallAccfactory {
           // Track this device once created
           this.#trackedDevices[deviceData.serialNumber] = {
             uuid: tempDevice.uuid,
+            timers: undefined,
+            exclude: false,
           };
-        }
-
-        if (deviceData.device_type === TeslaPowerwallAccfactory.DeviceType.GATEWAY) {
-          // Tesla Gateway - Categories.OUTLET = 7
-          /* let tempDevice = new Gateway(this.cachedAccessories, this.api, this.log, this.#eventEmitter, deviceData);
-          tempDevice.add('Tesla Gateway', 7, true);
-
-          // Track this device once created
-          this.#trackedDevices[deviceData.serialNumber] = {
-            uuid: tempDevice.uuid,
-          }; */
         }
       }
 
       // Finally, if device is not excluded, send updated data to device for it to process
       if (deviceData.excluded === false && this.#trackedDevices?.[deviceData?.serialNumber] !== undefined) {
-        this.#eventEmitter.emit(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
+        this.#trackedDevices?.[deviceData?.serialNumber]?.uuid &&
+          this.#eventEmitter?.emit?.(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
       }
     });
   }
@@ -512,28 +537,34 @@ class TeslaPowerwallAccfactory {
     if (typeof deviceUUID !== 'string') {
       deviceUUID = '';
     }
+
     let devices = {};
 
     Object.values(this.#rawData).forEach((data) => {
       // process raw device data
-      var tempDevice = {};
-      tempDevice.serialNumber = data.gateway.din.substring(data.gateway.din.indexOf('--') + 2).toUpperCase();
-      tempDevice.excluded = this.config?.devices?.[tempDevice?.serialNumber]?.exclude === true; // Mark device as excluded or not
+      let tempDevice = {};
+      let din = data.gateway.din;
+      let prefix = din.substring(0, 7);
+
+      tempDevice.serialNumber = din.substring(din.indexOf('--') + 2).toUpperCase();
+      tempDevice.excluded = this.config?.devices?.[tempDevice.serialNumber]?.exclude === true; // Mark device as excluded or not
       tempDevice.device_type = TeslaPowerwallAccfactory.DeviceType.GATEWAY;
       tempDevice.softwareVersion = data.gateway.version.replace(/-/g, '.').split(' ')[0];
       tempDevice.model = 'Gateway';
-      if (data.gateway.din.substring(0, 7) === '1099752') {
+
+      if (prefix === '1099752') {
         tempDevice.model = 'Non-Backup Gateway';
       }
-      if (data.gateway.din.substring(0, 7) === '1118431') {
+      if (prefix === '1118431') {
         tempDevice.model = 'Backup Gateway 1';
       }
-      if (data.gateway.din.substring(0, 7) === '1152100' || data.gateway.din.substring(0, 7) === '1232100') {
+      if (prefix === '1152100' || prefix === '1232100') {
         tempDevice.model = 'Backup Gateway 2';
       }
-      if (data.gateway.din.substring(0, 7) === '1841000') {
+      if (prefix === '1841000') {
         tempDevice.model = 'Backup Gateway 3';
       }
+
       tempDevice.description = makeHomeKitName('Tesla ' + tempDevice.model);
       tempDevice.manufacturer = 'Tesla';
       tempDevice.powerflow = data.powerflow; // How power is flowing
@@ -541,41 +572,41 @@ class TeslaPowerwallAccfactory {
       tempDevice.nominal_energy_remaining = data.status.nominal_energy_remaining; // Should be battery remaing across all powerwalls
       tempDevice.nominal_full_pack_energy = data.status.nominal_full_pack_energy; // Should be battery capacity across all powerwalls
       tempDevice.online = false; // Offline by default
-      data.networks &&
-        data.networks.forEach((network) => {
-          if (network.enabled === true && network.active === true) {
-            // Found a network interface that is marked as enabled and active, this means online status is true
-            tempDevice.online = true;
-          }
-        });
+
+      Object.values(data.networks).forEach((network) => {
+        if (network.enabled === true && network.active === true) {
+          // Found a network interface that is marked as enabled and active, this means online status is true
+          tempDevice.online = true;
+        }
+      });
+
       tempDevice.eveHistory =
         this.config.options.eveHistory === true || this.config?.devices?.[tempDevice.serialNumber]?.eveHistory === true;
 
       let gatewaySoftwareVersion = tempDevice.softwareVersion;
       devices[tempDevice.serialNumber] = tempDevice; // Store processed device
 
-      // Proccess powerwalls attached to this gateway
+      // Process powerwalls attached to this gateway
       Object.values(data.status.battery_blocks).forEach((powerwall) => {
-        var tempDevice = {};
+        let tempDevice = {};
+        let partNumber = powerwall.PackagePartNumber.substring(0, 7);
+
         tempDevice.excluded = false;
         tempDevice.serialNumber = powerwall.PackageSerialNumber.toUpperCase(); // ensure serial numbers are in upper case
         tempDevice.device_type = TeslaPowerwallAccfactory.DeviceType.POWERWALL;
         tempDevice.softwareVersion = gatewaySoftwareVersion;
-        //tempDevice.softwareVersion = powerwall.version.replace(/-/g, '.');
         tempDevice.model = 'Powerwall';
-        if (
-          powerwall.PackagePartNumber.substring(0, 7) === '1092170' ||
-          powerwall.PackagePartNumber.substring(0, 7) === '2012170' ||
-          powerwall.PackagePartNumber.substring(0, 7) === '3012170'
-        ) {
+
+        if (partNumber === '1092170' || partNumber === '2012170' || partNumber === '3012170') {
           tempDevice.model = 'Powerwall 2 AC';
         }
-        if (powerwall.PackagePartNumber.substring(0, 7) === '1112170') {
+        if (partNumber === '1112170') {
           tempDevice.model = 'Powerwall 2 DC';
         }
-        if (powerwall.PackagePartNumber.substring(0, 7) === '1707000') {
+        if (partNumber === '1707000') {
           tempDevice.model = 'Powerwall 3';
         }
+
         tempDevice.description = makeHomeKitName('Tesla ' + tempDevice.model);
         tempDevice.manufacturer = 'Tesla';
         tempDevice.online = powerwall.OpSeqState.toUpperCase() === 'ACTIVE';
@@ -585,6 +616,7 @@ class TeslaPowerwallAccfactory {
         tempDevice.p_out = powerwall.p_out; // watts coming from battery. negative number means power flowing to battery
         tempDevice.v_out = powerwall.v_out; // volts coming from battery. negative number means power flowing to battery
         tempDevice.i_out = powerwall.i_out * -1; // amps coming from battery. negative number means power flowing to battery. need to invert
+
         tempDevice.eveHistory =
           this.config.options.eveHistory === true || this.config?.devices?.[tempDevice.serialNumber]?.eveHistory === true;
 
@@ -601,64 +633,83 @@ function makeHomeKitName(nameToMakeValid) {
   // Strip invalid characters to meet HomeKit naming requirements
   // Ensure only letters or numbers are at the beginning AND/OR end of string
   // Matches against uni-code characters
-  return typeof nameToMakeValid === 'string'
-    ? nameToMakeValid
-        .replace(/[^\p{L}\p{N}\p{Z}\u2019.,-]/gu, '')
-        .replace(/^[^\p{L}\p{N}]*/gu, '')
-        .replace(/[^\p{L}\p{N}]+$/gu, '')
-    : nameToMakeValid;
+  let validHomeKitName = nameToMakeValid;
+  if (typeof nameToMakeValid === 'string') {
+    validHomeKitName = nameToMakeValid
+      .replace(/[^\p{L}\p{N}\p{Z}\u2019 '.,-]/gu, '') // Remove disallowed characters
+      .replace(/^[^\p{L}\p{N}]*/gu, '') // Trim invalid prefix
+      .replace(/[^\p{L}\p{N}]+$/gu, ''); // Trim invalid suffix
+  }
+  return validHomeKitName;
 }
 
-function scaleValue(value, sourceRangeMin, sourceRangeMax, targetRangeMin, targetRangeMax) {
-  if (value < sourceRangeMin) {
-    value = sourceRangeMin;
+function scaleValue(value, sourceMin, sourceMax, targetMin, targetMax) {
+  if (sourceMax === sourceMin) {
+    return targetMin;
   }
-  if (value > sourceRangeMax) {
-    value = sourceRangeMax;
-  }
-  return ((value - sourceRangeMin) * (targetRangeMax - targetRangeMin)) / (sourceRangeMax - sourceRangeMin) + targetRangeMin;
+
+  value = Math.max(sourceMin, Math.min(sourceMax, value));
+
+  return ((value - sourceMin) * (targetMax - targetMin)) / (sourceMax - sourceMin) + targetMin;
 }
 
-async function fetchWrapper(method, url, options, data, response) {
+async function fetchWrapper(method, url, options, data) {
   if ((method !== 'get' && method !== 'post') || typeof url !== 'string' || url === '' || typeof options !== 'object') {
     return;
   }
 
-  if (isNaN(options?.timeout) === false && Number(options?.timeout) > 0) {
-    // If a timeout is specified in the options, setup here
+  if (isNaN(options?.timeout) === false && Number(options.timeout) > 0) {
     // eslint-disable-next-line no-undef
     options.signal = AbortSignal.timeout(Number(options.timeout));
   }
 
-  if (options?.retry === undefined) {
-    // If not retry option specifed , we'll do just once
+  if (isNaN(options.retry) === true || options.retry < 1) {
     options.retry = 1;
   }
 
-  options.method = method; // Set the HTTP method to use
+  if (isNaN(options._retryCount) === true) {
+    options._retryCount = 0;
+  }
 
-  if (method === 'post' && typeof data !== undefined) {
-    // Doing a HTTP post, so include the data in the body
+  options.method = method;
+
+  if (method === 'post' && data !== undefined) {
     options.body = data;
   }
 
-  if (options.retry > 0) {
+  let response;
+  try {
     // eslint-disable-next-line no-undef
     response = await fetch(url, options);
-    if (response.ok === false && options.retry > 1) {
-      options.retry--; // One less retry to go
+  } catch (error) {
+    if (options.retry > 1) {
+      options.retry--;
+      options._retryCount++;
 
-      // Try again after short delay (500ms)
-      // We pass back in this response also for when we reach zero retries and still not successful
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      // eslint-disable-next-line no-undef
-      response = await fetchWrapper(method, url, options, data, structuredClone(response));
+      const delay = 500 * 2 ** (options._retryCount - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      return fetchWrapper(method, url, options, data);
     }
-    if (response.ok === false && options.retry === 0) {
-      let error = new Error(response.statusText);
-      error.code = response.status;
-      throw error;
+
+    error.message = `Fetch failed for ${method.toUpperCase()} ${url} after ${options._retryCount + 1} attempt(s): ${error.message}`;
+    throw error;
+  }
+
+  if (response?.ok === false) {
+    if (options.retry > 1) {
+      options.retry--;
+      options._retryCount++;
+
+      let delay = 500 * 2 ** (options._retryCount - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      return fetchWrapper(method, url, options, data);
     }
+
+    let error = new Error(`HTTP ${response.status} on ${method.toUpperCase()} ${url}: ${response.statusText || 'Unknown error'}`);
+    error.code = response.status;
+    throw error;
   }
 
   return response;
