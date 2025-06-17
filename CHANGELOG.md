@@ -6,6 +6,11 @@ All notable changes to `homebridge-teslapowerwall-accfactory` will be documented
 
 - Entered passwords for gateway(s) are stored in plain text in configuration JSON.
 
+## v0.1.0 (2025/06/18)
+
+- Refactored to use new HomeKitDevice base class
+- Minor internal improvements
+
 ## v0.0.9 (2025/06/14) 
 
 - Dependency updates

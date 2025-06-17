@@ -11,12 +11,11 @@
 //  Battery Charging No = Battery is not being charge
 //  Low battery indicator = ????
 //
-// Code version 2025/06/14
+// Code version 2025/06/17
 // Mark Hulskamp
 'use strict';
 
 // Define nodejs module requirements
-import EventEmitter from 'node:events';
 import { clearInterval, setTimeout, clearTimeout } from 'node:timers';
 import crypto from 'node:crypto';
 import { Agent, setGlobalDispatcher } from 'undici';
@@ -29,25 +28,33 @@ HomeKitDevice.PLATFORM_NAME = 'TeslaPowerwallAccfactory';
 import HomeKitHistory from './HomeKitHistory.js';
 HomeKitDevice.HISTORY = HomeKitHistory;
 
-// Powerwall class
-const MINWATTS = 100;
+// Define constants
+const MIN_WATTS = 100;
 
+// Powerwall class
 class Powerwall extends HomeKitDevice {
   static TYPE = 'TeslaPowerwall';
-  static VERSION = '2025.06.14';
+  static VERSION = '2025.06.17';
 
   batteryService = undefined;
   outletService = undefined;
 
-  constructor(accessory, api, log, eventEmitter, deviceData) {
-    super(accessory, api, log, eventEmitter, deviceData);
-  }
-
   // Class functions
-  setupDevice() {
+  onAdd() {
     // Setup the outlet service if not already present on the accessory
     this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1);
     this.outletService.setPrimaryService();
+
+    // Setup set characteristics
+    this.addHKCharacteristic(this.outletService, this.hap.Characteristic.On, {
+      // eslint-disable-next-line no-unused-vars
+      onSet: (value) => {
+        // Reject manual changes
+        setTimeout(() => {
+          this.outletService.updateCharacteristic(this.hap.Characteristic.On, this.deviceData.p_out > MIN_WATTS ? true : false);
+        }, 100);
+      },
+    });
 
     // Setup battery service if not already present on the accessory
     this.batteryService = this.addHKService(this.hap.Service.Battery, '', 1);
@@ -66,7 +73,7 @@ class Powerwall extends HomeKitDevice {
     }
   }
 
-  updateDevice(deviceData) {
+  onUpdate(deviceData) {
     if (typeof deviceData !== 'object' || this.outletService === undefined || this.batteryService === undefined) {
       return;
     }
@@ -78,8 +85,8 @@ class Powerwall extends HomeKitDevice {
     );
 
     // Update energy flows
-    this.outletService.updateCharacteristic(this.hap.Characteristic.On, deviceData.p_out > MINWATTS ? true : false);
-    this.outletService.updateCharacteristic(this.hap.Characteristic.OutletInUse, deviceData.p_out > MINWATTS ? true : false);
+    this.outletService.updateCharacteristic(this.hap.Characteristic.On, deviceData.p_out > MIN_WATTS ? true : false);
+    this.outletService.updateCharacteristic(this.hap.Characteristic.OutletInUse, deviceData.p_out > MIN_WATTS ? true : false);
 
     // Update battery level and status
     let batteryLevel = scaleValue(deviceData.nominal_energy_remaining, 0, deviceData.nominal_full_pack_energy, 0, 100);
@@ -101,10 +108,10 @@ class Powerwall extends HomeKitDevice {
         this.outletService,
         {
           time: Math.floor(Date.now() / 1000),
-          status: deviceData.p_out > MINWATTS ? 1 : 0,
-          volts: deviceData.p_out > MINWATTS && deviceData.v_out > MINWATTS ? deviceData.v_out : 0,
-          watts: deviceData.p_out > MINWATTS ? deviceData.p_out : 0,
-          amps: deviceData.p_out > MINWATTS && deviceData.i_out > 0 ? deviceData.i_out : 0,
+          status: deviceData.p_out > MIN_WATTS ? 1 : 0,
+          volts: deviceData.p_out > MIN_WATTS && deviceData.v_out > MIN_WATTS ? deviceData.v_out : 0,
+          watts: deviceData.p_out > MIN_WATTS ? deviceData.p_out : 0,
+          amps: deviceData.p_out > MIN_WATTS && deviceData.i_out > 0 ? deviceData.i_out : 0,
         },
         120,
       );
@@ -140,29 +147,28 @@ class Powerwall extends HomeKitDevice {
 // eslint-disable-next-line no-unused-vars
 class Gateway extends HomeKitDevice {
   static TYPE = 'TeslaGateway';
-  static VERSION = '2025.06.14';
+  static VERSION = '2025.06.17';
 
   batteryService = undefined;
   outletService = undefined;
-
-  constructor(accessory, api, log, eventEmitter, deviceData) {
-    super(accessory, api, log, eventEmitter, deviceData);
-  }
+  lightService = undefined;
 
   // Class functions
-  setupDevice() {
+  onAdd() {
     // Setup the outlet service if not already present on the accessory
-    this.outletService = this.accessory.getService(this.hap.Service.Outlet);
-    if (this.outletService === undefined) {
-      this.outletService = this.accessory.addService(this.hap.Service.Outlet, '', 1);
-    }
-    if (this.outletService.testCharacteristic(this.hap.Characteristic.StatusFault) === false) {
-      this.outletService.addCharacteristic(this.hap.Characteristic.StatusFault);
-    }
-    if (this.outletService.testCharacteristic(this.hap.Characteristic.CurrentAmbientLightLevel) === false) {
-      this.outletService.addCharacteristic(this.hap.Characteristic.CurrentAmbientLightLevel);
-    }
+    this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1);
     this.outletService.setPrimaryService();
+
+    // Setup set characteristics
+    this.addHKCharacteristic(this.outletService, this.hap.Characteristic.On, {
+      // eslint-disable-next-line no-unused-vars
+      onSet: (value) => {
+        // Reject manual changes
+        setTimeout(() => {
+          this.outletService.updateCharacteristic(this.deviceData?.powerflow?.battery?.instant_power >= MIN_WATTS ? true : false);
+        }, 100);
+      },
+    });
 
     // Below doesnt appear to change anything in HomeKit, but we'll do it anyway. maybe for future
     this.outletService.getCharacteristic(this.hap.Characteristic.CurrentAmbientLightLevel).displayName = 'Solar Generation';
@@ -170,11 +176,14 @@ class Gateway extends HomeKitDevice {
     this.outletService.getCharacteristic(this.hap.Characteristic.ChargingState).displayName = 'Exporting';
 
     // Setup the battery service if not already present on the accessory
-    this.batteryService = this.accessory.getService(this.hap.Service.Battery);
-    if (this.batteryService === undefined) {
-      this.batteryService = this.accessory.addService(this.hap.Service.Battery, '', 1);
-    }
+    this.batteryService = this.addHKService(this.hap.Service.Battery, '', 1);
     this.batteryService.setHiddenService(true);
+
+    // Setup LightSensor service for solar generation LUX
+    this.lightService = this.addHKService(this.hap.Service.LightSensor, '', 1);
+    this.lightService.setHiddenService(true);
+
+    this.addHKCharacteristic(this.lightService, this.hap.Characteristic.CurrentAmbientLightLevel);
 
     // Setup linkage to EveHome app if configured todo so
     if (
@@ -189,46 +198,33 @@ class Gateway extends HomeKitDevice {
     }
   }
 
-  updateDevice(deviceData) {
+  onUpdate(deviceData) {
     if (typeof deviceData !== 'object' || this.outletService === undefined || this.batteryService === undefined) {
       return;
     }
 
-    // If device isn't online report in HomeKit
-    this.outletService.updateCharacteristic(
-      this.hap.Characteristic.StatusFault,
-      deviceData.online === true ? this.hap.Characteristic.StatusFault.NO_FAULT : this.hap.Characteristic.StatusFault.GENERAL_FAULT,
-    );
-
-    if (deviceData.powerflow.battery && deviceData.powerflow.battery.instant_power >= 100) {
-      // Over "minwatts" coming from battery, we assume using battery power to either house or grid
-      // Using this as metric seems to smooth out the small discharges seen from app
-      this.batteryService
-        .getCharacteristic(this.hap.Characteristic.ChargingState)
-        .updateValue(this.hap.Characteristic.ChargingState.NOT_CHARGING);
-      this.outletService.getCharacteristic(this.hap.Characteristic.On).updateValue(true);
-    } else if (
-      deviceData.powerflow.battery &&
-      deviceData.powerflow.battery.instant_power > 0 &&
-      deviceData.powerflow.battery.instant_power < 100
-    ) {
-      this.batteryService
-        .getCharacteristic(this.hap.Characteristic.ChargingState)
-        .updateValue(this.hap.Characteristic.ChargingState.NOT_CHARGING);
-      this.outletService.getCharacteristic(this.hap.Characteristic.On).updateValue(false);
-    } else if (deviceData.powerflow.battery && deviceData.powerflow.battery.instant_power <= 0) {
-      if (scaleValue(deviceData.nominal_energy_remaining, 0, deviceData.nominal_full_pack_energy, 0, 100) < 100) {
-        // Power going to battery and charged battery percentage is less than 100%
-        this.batteryService
-          .getCharacteristic(this.hap.Characteristic.ChargingState)
-          .updateValue(this.hap.Characteristic.ChargingState.CHARGING);
+    if (typeof deviceData?.powerflow?.battery === 'object') {
+      if (deviceData.powerflow.battery.instant_power >= MIN_WATTS) {
+        // Over "minwatts" coming from battery, we assume using battery power to either house or grid
+        // Using this as metric seems to smooth out the small discharges seen from app
+        this.batteryService.updateCharacteristic(this.hap.Characteristic.ChargingState, this.hap.Characteristic.ChargingState.NOT_CHARGING);
+        this.outletService.updateCharacteristic(this.hap.Characteristic.On, true);
+      } else if (deviceData.powerflow.battery.instant_power > 0) {
+        this.batteryService.updateCharacteristic(this.hap.Characteristic.ChargingState, this.hap.Characteristic.ChargingState.NOT_CHARGING);
+        this.outletService.updateCharacteristic(this.hap.Characteristic.On, false);
       } else {
-        // Battery is at 100%, so not charging
-        this.batteryService
-          .getCharacteristic(this.hap.Characteristic.ChargingState)
-          .updateValue(this.hap.Characteristic.ChargingState.NOT_CHARGING);
+        if (scaleValue(deviceData.nominal_energy_remaining, 0, deviceData.nominal_full_pack_energy, 0, 100) < 100) {
+          // Power going to battery and charged battery percentage is less than 100%
+          this.batteryService.updateCharacteristic(this.hap.Characteristic.ChargingState, this.hap.Characteristic.ChargingState.CHARGING);
+        } else {
+          // Battery is at 100%, so not charging
+          this.batteryService.updateCharacteristic(
+            this.hap.Characteristic.ChargingState,
+            this.hap.Characteristic.ChargingState.NOT_CHARGING,
+          );
+        }
+        this.outletService.updateCharacteristic(this.hap.Characteristic.On, false);
       }
-      this.outletService.getCharacteristic(this.hap.Characteristic.On).updateValue(false);
     }
 
     this.batteryService.updateCharacteristic(
@@ -239,11 +235,10 @@ class Gateway extends HomeKitDevice {
     );
 
     // Solar generation in watts as a LUX reading
-    this.outletService
-      .getCharacteristic(this.hap.Characteristic.CurrentAmbientLightLevel)
-      .updateValue(
-        deviceData.powerflow.solar && deviceData.powerflow.solar.instant_power > 0 ? deviceData.powerflow.solar.instant_power : 0.0001,
-      );
+    this.lightService.updateCharacteristic(
+      this.hap.Characteristic.CurrentAmbientLightLevel,
+      deviceData.powerflow.solar && deviceData.powerflow.solar.instant_power > 0 ? deviceData.powerflow.solar.instant_power : 0.0001,
+    );
   }
 
   #EveHomeGetcommand(EveHomeGetData) {
@@ -258,7 +253,7 @@ class Gateway extends HomeKitDevice {
 }
 
 // Telsa class
-const SUBSCRIBEINTERVAL = 15000; // Get system details every 2 seconds
+const SUBSCRIBE_INTERVAL = 15000; // Get system details every 2 seconds
 
 class TeslaPowerwallAccfactory {
   static DeviceType = {
@@ -270,8 +265,7 @@ class TeslaPowerwallAccfactory {
 
   // Internal data only for this class
   #connections = {}; // Object of confirmed connections
-  #rawData = {}; // Cached copy of data from Rest API
-  #eventEmitter = new EventEmitter(); // Used for object messaging from this platform
+  #rawData = {}; // Cached copy of data from Rest APIm
   #trackedDevices = {}; // Object of devices we've created. used to track comms uuid. key'd by serial #
 
   constructor(log, config, api) {
@@ -339,20 +333,17 @@ class TeslaPowerwallAccfactory {
     this?.api?.on?.('shutdown', async () => {
       // We got notified that Homebridge is shutting down
       // Perform cleanup of internal state
-      this.#eventEmitter?.removeAllListeners();
-
       Object.values(this.#trackedDevices).forEach((device) => {
         Object.values(device?.timers || {}).forEach((timer) => clearInterval(timer));
       });
 
       this.#trackedDevices = {};
       this.#rawData = {};
-      this.#eventEmitter = undefined;
     });
   }
 
   configureAccessory(accessory) {
-    // This gets called from HomeBridge each time it restores an accessory from its cache
+    // This gets called from Homebridge each time it restores an accessory from its cache
     this?.log?.info && this.log.info('Loading accessory from cache:', accessory.displayName);
 
     // add the restored accessory to the accessories cache, so we can track if it has already been registered
@@ -486,7 +477,7 @@ class TeslaPowerwallAccfactory {
     }
 
     // Redo data gathering again after specified timeout
-    setTimeout(this.#subscribeREST.bind(this, uuid), SUBSCRIBEINTERVAL);
+    setTimeout(this.#subscribeREST.bind(this, uuid), SUBSCRIBE_INTERVAL);
   }
 
   #processPostSubscribe() {
@@ -511,9 +502,9 @@ class TeslaPowerwallAccfactory {
       }
 
       if (this.#trackedDevices?.[deviceData?.serialNumber] === undefined && deviceData?.excluded === false) {
-        if (deviceData.device_type = TeslaPowerwallAccfactory.DeviceType.POWERWALL) {
+        if (deviceData.device_type === TeslaPowerwallAccfactory.DeviceType.POWERWALL) {
           // Tesla Powerwall - Categories.OUTLET = 7
-          let tempDevice = new Powerwall(this.cachedAccessories, this.api, this.log, this.#eventEmitter, deviceData);
+          let tempDevice = new Powerwall(this.cachedAccessories, this.api, this.log, deviceData);
           tempDevice.add('Tesla Powerwall', 7, true);
 
           // Track this device once created
@@ -523,12 +514,28 @@ class TeslaPowerwallAccfactory {
             exclude: false,
           };
         }
+
+        if (deviceData.device_type === TeslaPowerwallAccfactory.DeviceType.GATEWAY) {
+          // Tesla Gateway - Categories.OUTLET = 7
+          /*
+          let tempDevice = new Gateway(this.cachedAccessories, this.api, this.log, deviceData);
+          tempDevice.add('Tesla Gateway', 7, true);
+
+          // Track this device once created
+          this.#trackedDevices[deviceData.serialNumber] = {
+            uuid: tempDevice.uuid,
+            timers: undefined,
+            exclude: false,
+          };
+          */
+        }
       }
 
       // Finally, if device is not excluded, send updated data to device for it to process
       if (deviceData.excluded === false && this.#trackedDevices?.[deviceData?.serialNumber] !== undefined) {
-        this.#trackedDevices?.[deviceData?.serialNumber]?.uuid &&
-          this.#eventEmitter?.emit?.(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
+        if (this.#trackedDevices?.[deviceData?.serialNumber]?.uuid !== undefined) {
+          HomeKitDevice.message(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
+        }
       }
     });
   }
@@ -565,7 +572,7 @@ class TeslaPowerwallAccfactory {
         tempDevice.model = 'Backup Gateway 3';
       }
 
-      tempDevice.description = makeHomeKitName('Tesla ' + tempDevice.model);
+      tempDevice.description = HomeKitDevice.makeValidHKName('Tesla ' + tempDevice.model);
       tempDevice.manufacturer = 'Tesla';
       tempDevice.powerflow = data.powerflow; // How power is flowing
       tempDevice.backup_reserve_percent = data.operation.backup_reserve_percent;
@@ -607,7 +614,7 @@ class TeslaPowerwallAccfactory {
           tempDevice.model = 'Powerwall 3';
         }
 
-        tempDevice.description = makeHomeKitName('Tesla ' + tempDevice.model);
+        tempDevice.description = HomeKitDevice.makeValidHKName('Tesla ' + tempDevice.model);
         tempDevice.manufacturer = 'Tesla';
         tempDevice.online = powerwall.OpSeqState.toUpperCase() === 'ACTIVE';
         tempDevice.backup_reserve_percent = data.operation.backup_reserve_percent;
@@ -629,20 +636,6 @@ class TeslaPowerwallAccfactory {
 }
 
 // General helper functions which don't need to be part of an object class
-function makeHomeKitName(nameToMakeValid) {
-  // Strip invalid characters to meet HomeKit naming requirements
-  // Ensure only letters or numbers are at the beginning AND/OR end of string
-  // Matches against uni-code characters
-  let validHomeKitName = nameToMakeValid;
-  if (typeof nameToMakeValid === 'string') {
-    validHomeKitName = nameToMakeValid
-      .replace(/[^\p{L}\p{N}\p{Z}\u2019 '.,-]/gu, '') // Remove disallowed characters
-      .replace(/^[^\p{L}\p{N}]*/gu, '') // Trim invalid prefix
-      .replace(/[^\p{L}\p{N}]+$/gu, ''); // Trim invalid suffix
-  }
-  return validHomeKitName;
-}
-
 function scaleValue(value, sourceMin, sourceMax, targetMin, targetMax) {
   if (sourceMax === sourceMin) {
     return targetMin;
@@ -725,6 +718,6 @@ export default (api) => {
     }),
   );
 
-  // Register our platform with HomeBridge
+  // Register our platform with Homebridge
   api.registerPlatform(HomeKitDevice.PLATFORM_NAME, TeslaPowerwallAccfactory);
 };
