@@ -11,7 +11,7 @@
 //  Battery Charging No = Battery is not being charge
 //  Low battery indicator = ????
 //
-// Code version 2025/06/17
+// Code version 2025.07.22
 // Mark Hulskamp
 'use strict';
 
@@ -34,7 +34,7 @@ const MIN_WATTS = 100;
 // Powerwall class
 class Powerwall extends HomeKitDevice {
   static TYPE = 'TeslaPowerwall';
-  static VERSION = '2025.06.17';
+  static VERSION = '2025.07.22';
 
   batteryService = undefined;
   outletService = undefined;
@@ -42,7 +42,7 @@ class Powerwall extends HomeKitDevice {
   // Class functions
   onAdd() {
     // Setup the outlet service if not already present on the accessory
-    this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1);
+    this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1, { messages: this.message.bind(this) });
     this.outletService.setPrimaryService();
 
     // Setup set characteristics
@@ -59,18 +59,6 @@ class Powerwall extends HomeKitDevice {
     // Setup battery service if not already present on the accessory
     this.batteryService = this.addHKService(this.hap.Service.Battery, '', 1);
     this.batteryService.setHiddenService(true);
-
-    // Setup linkage to EveHome app if configured todo so
-    if (
-      this.deviceData?.eveHistory === true &&
-      this.outletService !== undefined &&
-      typeof this.historyService?.linkToEveHome === 'function'
-    ) {
-      this.historyService.linkToEveHome(this.outletService, {
-        description: this.deviceData.description,
-        getcommand: this.#EveHomeGetcommand.bind(this),
-      });
-    }
   }
 
   onUpdate(deviceData) {
@@ -103,51 +91,45 @@ class Powerwall extends HomeKitDevice {
     );
 
     // If we have the history service running and power output has changed to previous in past 2mins
-    if (this.outletService !== undefined && typeof this.historyService?.addHistory === 'function') {
-      this.historyService.addHistory(
-        this.outletService,
-        {
-          time: Math.floor(Date.now() / 1000),
-          status: deviceData.p_out > MIN_WATTS ? 1 : 0,
-          volts: deviceData.p_out > MIN_WATTS && deviceData.v_out > MIN_WATTS ? deviceData.v_out : 0,
-          watts: deviceData.p_out > MIN_WATTS ? deviceData.p_out : 0,
-          amps: deviceData.p_out > MIN_WATTS && deviceData.i_out > 0 ? deviceData.i_out : 0,
-        },
-        120,
-      );
-    }
+    this.history(
+      this.outletService,
+      {
+        time: Math.floor(Date.now() / 1000),
+        status: deviceData.p_out > MIN_WATTS ? 1 : 0,
+        volts: deviceData.p_out > MIN_WATTS && deviceData.v_out > MIN_WATTS ? deviceData.v_out : 0,
+        watts: deviceData.p_out > MIN_WATTS ? deviceData.p_out : 0,
+        amps: deviceData.p_out > MIN_WATTS && deviceData.i_out > 0 ? deviceData.i_out : 0,
+      },
+      120,
+    );
 
-    // Notify Eve App of device status changes if linked
-    if (
-      this.deviceData.eveHistory === true &&
-      this.outletService !== undefined &&
-      typeof this.historyService?.updateEveHome === 'function'
-    ) {
-      // Update our internal data with properties Eve will need to process
-      this.deviceData.v_out = deviceData.v_out;
-      this.deviceData.p_out = deviceData.p_out;
-      this.deviceData.i_out = deviceData.i_out;
-      this.historyService.updateEveHome(this.outletService, this.#EveHomeGetcommand.bind(this));
-    }
+    // Update our internal data with properties Eve will need to process then Notify Eve App of device status changes if linked
+    this.deviceData.v_out = deviceData.v_out;
+    this.deviceData.p_out = deviceData.p_out;
+    this.deviceData.i_out = deviceData.i_out;
+    this.historyService?.updateEveHome?.(this.outletService);
   }
 
-  #EveHomeGetcommand(EveHomeGetData) {
-    // Pass back extra data for Eve Energy onGet() to process command
-    // Data will already be an object, our only job is to add/modify it
-    if (typeof EveHomeGetData === 'object') {
-      EveHomeGetData.volts = this.deviceData.p_out > 0 && this.deviceData.v_out > 0 ? this.deviceData.v_out : 0; // Only report voltage if watts are flowing
-      EveHomeGetData.watts = this.deviceData.p_out > 0 ? this.deviceData.p_out : 0;
-      EveHomeGetData.amps = this.deviceData.p_out > 0 && this.deviceData.i_out > 0 ? this.deviceData.i_out : 0; // Only report current if watts are flowing
+  onMessage(type, message) {
+    if (typeof type !== 'string' || type === '' || message === null || typeof message !== 'object' || message?.constructor !== Object) {
+      return;
     }
 
-    return EveHomeGetData;
+    if (type === HomeKitDevice?.HISTORY?.GET) {
+      // Pass back extra data for Eve Energy onGet() to process command
+      // Data will already be an object, our only job is to add/modify it
+      message.volts = this.deviceData.p_out > 0 && this.deviceData.v_out > 0 ? this.deviceData.v_out : 0; // Only report voltage if watts are flowing
+      message.watts = this.deviceData.p_out > 0 ? this.deviceData.p_out : 0;
+      message.amps = this.deviceData.p_out > 0 && this.deviceData.i_out > 0 ? this.deviceData.i_out : 0; // Only report current if watts are flowing
+      return message;
+    }
   }
 }
 
 // eslint-disable-next-line no-unused-vars
 class Gateway extends HomeKitDevice {
   static TYPE = 'TeslaGateway';
-  static VERSION = '2025.06.17';
+  static VERSION = '2025.07.22';
 
   batteryService = undefined;
   outletService = undefined;
@@ -156,7 +138,7 @@ class Gateway extends HomeKitDevice {
   // Class functions
   onAdd() {
     // Setup the outlet service if not already present on the accessory
-    this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1);
+    this.outletService = this.addHKService(this.hap.Service.Outlet, '', 1, { messages: this.message.bind(this) });
     this.outletService.setPrimaryService();
 
     // Setup set characteristics
@@ -184,18 +166,6 @@ class Gateway extends HomeKitDevice {
     this.lightService.setHiddenService(true);
 
     this.addHKCharacteristic(this.lightService, this.hap.Characteristic.CurrentAmbientLightLevel);
-
-    // Setup linkage to EveHome app if configured todo so
-    if (
-      this.deviceData?.eveHistory === true &&
-      this.outletService !== undefined &&
-      typeof this.historyService?.linkToEveHome === 'function'
-    ) {
-      this.historyService.linkToEveHome(this.outletService, {
-        description: this.deviceData.description,
-        getcommand: this.#EveHomeGetcommand.bind(this),
-      });
-    }
   }
 
   onUpdate(deviceData) {
@@ -241,14 +211,14 @@ class Gateway extends HomeKitDevice {
     );
   }
 
-  #EveHomeGetcommand(EveHomeGetData) {
-    // Pass back extra data for Eve Energy onGet() to process command
-    // Data will already be an object, our only job is to add/modify it
-    if (typeof EveHomeGetData === 'object') {
-      //
+  onMessage(type, message) {
+    if (typeof type !== 'string' || type === '' || message === null || typeof message !== 'object' || message?.constructor !== Object) {
+      return;
     }
 
-    return EveHomeGetData;
+    if (type === HomeKitDevice?.HISTORY?.GET) {
+      return message;
+    }
   }
 }
 
@@ -533,9 +503,7 @@ class TeslaPowerwallAccfactory {
 
       // Finally, if device is not excluded, send updated data to device for it to process
       if (deviceData.excluded === false && this.#trackedDevices?.[deviceData?.serialNumber] !== undefined) {
-        if (this.#trackedDevices?.[deviceData?.serialNumber]?.uuid !== undefined) {
-          HomeKitDevice.message(this.#trackedDevices[deviceData.serialNumber].uuid, HomeKitDevice.UPDATE, deviceData);
-        }
+        HomeKitDevice.message(this.#trackedDevices?.[deviceData?.serialNumber]?.uuid, HomeKitDevice.UPDATE, deviceData);
       }
     });
   }
